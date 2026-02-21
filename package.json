@@ -1,0 +1,17 @@
+{
+  "name": "dark-shan-cc",
+  "version": "3.0.0",
+  "description": "DARK SHAN CC - Card Checker & Generator with PayPal",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "axios": "^1.13.5",
+    "express": "^5.2.1"
+  }
+}
