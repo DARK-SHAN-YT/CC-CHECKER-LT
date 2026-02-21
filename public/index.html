@@ -631,6 +631,8 @@
             } catch (e) { alert('Error queuing cards: ' + e.message); }
         }
 
+        let displayedResults = new Set();
+        
         async function updateQueueStatus() {
             try {
                 const response = await fetch('/api/paypal/queue');
@@ -638,10 +640,36 @@
                 document.getElementById('queueSize').textContent = data.queueSize;
                 document.getElementById('queueStatus').textContent = data.isProcessing ? 'Processing...' : 'Idle';
                 document.getElementById('queueIndicator').classList.toggle('active', data.isProcessing);
+                
+                // Display new results from queue
+                if (data.results && data.results.length > 0) {
+                    const panel = document.getElementById('paypalResultsPanel');
+                    // Clear empty state if exists
+                    if (panel.querySelector('.empty-state')) {
+                        panel.innerHTML = '';
+                    }
+                    
+                    data.results.forEach(result => {
+                        const resultId = result.card + result.time;
+                        if (!displayedResults.has(resultId)) {
+                            displayedResults.add(resultId);
+                            const div = document.createElement('div');
+                            div.className = `result-item ${result.status}`;
+                            div.innerHTML = `<div class="card-info">${result.card} - ${result.message}</div><span class="card-status ${result.status}">${result.status.toUpperCase()}</span>`;
+                            panel.insertBefore(div, panel.firstChild);
+                            
+                            // Update stats
+                            if (result.status === 'charged') paypalCharged.push(result.card);
+                            else if (result.status === 'cvv' || result.status === 'insufficient') paypalCVV.push(result.card);
+                            else paypalDead.push(result.card);
+                            updatePayPalStats();
+                        }
+                    });
+                }
             } catch (e) { console.error('Queue status error:', e); }
         }
 
-        setInterval(updateQueueStatus, 5000);
+        setInterval(updateQueueStatus, 3000);
 
         function addPayPalResult(card, status, message) {
             const panel = document.getElementById('paypalResultsPanel');

