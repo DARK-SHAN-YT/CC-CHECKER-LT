@@ -230,9 +230,12 @@ app.post('/api/paypal', async (req, res) => {
       { headers: { 'Content-Type': 'application/json' } }
     );
     
-    const responseText = JSON.stringify(paypalRes.data);
+    // Get full response text (like Python's response.text)
+    const fullResponse = JSON.stringify(paypalRes.data);
+    const errorsResponse = paypalRes.data?.errors ? JSON.stringify(paypalRes.data.errors) : '';
+    const responseText = fullResponse + errorsResponse;
     
-    // Parse response
+    // Parse response - EXACTLY like Python code
     let status = 'declined';
     let message = 'Unknown';
     
@@ -252,7 +255,7 @@ app.post('/api/paypal', async (req, res) => {
       status = 'risk';
       message = 'Risk Disallowed';
     } else if (responseText.includes('ISSUER_DATA_NOT_FOUND')) {
-      status = 'issuer';
+      status = 'issuer_data';
       message = 'Issuer Data Not Found';
     } else if (responseText.includes('ISSUER_DECLINE')) {
       status = 'declined';
@@ -260,9 +263,18 @@ app.post('/api/paypal', async (req, res) => {
     } else if (responseText.includes('EXPIRED_CARD')) {
       status = 'expired';
       message = 'Expired Card';
+    } else if (responseText.includes('LOGIN_ERROR')) {
+      status = 'login_error';
+      message = 'Login Error';
+    } else if (responseText.includes('VALIDATION_ERROR')) {
+      status = 'validation_error';
+      message = 'Validation Error';
     } else if (responseText.includes('GRAPHQL_VALIDATION_FAILED')) {
-      status = 'error';
-      message = 'Validation Failed';
+      status = 'graphql_error';
+      message = 'GraphQL Validation Failed';
+    } else if (responseText.includes('R_ERROR') || responseText.includes('CARD_GENERIC_ERROR')) {
+      status = 'card_error';
+      message = 'Card Generic Error';
     } else {
       status = 'declined';
       message = 'Declined';
@@ -418,9 +430,12 @@ async function processPaypalQueue() {
         { headers: { 'Content-Type': 'application/json' } }
       );
       
-      const responseText = JSON.stringify(paypalRes.data);
+      // Get full response text (like Python's response.text)
+      const fullResponse = JSON.stringify(paypalRes.data);
+      const errorsResponse = paypalRes.data?.errors ? JSON.stringify(paypalRes.data.errors) : '';
+      const responseText = fullResponse + errorsResponse;
       
-      // Parse response
+      // Parse response - EXACTLY like Python code
       if (responseText.includes('accessToken') || responseText.includes('cartId')) {
         status = 'charged';
         message = 'Charged $5.00';
@@ -436,15 +451,27 @@ async function processPaypalQueue() {
       } else if (responseText.includes('RISK_DISALLOWED')) {
         status = 'risk';
         message = 'Risk Disallowed';
+      } else if (responseText.includes('ISSUER_DATA_NOT_FOUND')) {
+        status = 'issuer_data';
+        message = 'Issuer Data Not Found';
       } else if (responseText.includes('ISSUER_DECLINE')) {
         status = 'declined';
         message = 'Issuer Decline';
       } else if (responseText.includes('EXPIRED_CARD')) {
         status = 'expired';
         message = 'Expired Card';
+      } else if (responseText.includes('LOGIN_ERROR')) {
+        status = 'login_error';
+        message = 'Login Error';
+      } else if (responseText.includes('VALIDATION_ERROR')) {
+        status = 'validation_error';
+        message = 'Validation Error';
       } else if (responseText.includes('GRAPHQL_VALIDATION_FAILED')) {
-        status = 'error';
-        message = 'Validation Failed';
+        status = 'graphql_error';
+        message = 'GraphQL Validation Failed';
+      } else if (responseText.includes('R_ERROR') || responseText.includes('CARD_GENERIC_ERROR')) {
+        status = 'card_error';
+        message = 'Card Generic Error';
       } else {
         status = 'declined';
         message = 'Declined';
