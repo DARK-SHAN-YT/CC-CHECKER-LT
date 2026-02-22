@@ -104,6 +104,8 @@
         .btn-warning { background: linear-gradient(135deg, var(--neon-yellow), #ff8c00); color: #000; box-shadow: 0 5px 25px rgba(255, 215, 0, 0.4); }
         .btn-danger { background: linear-gradient(135deg, var(--neon-red), #cc0000); color: #fff; box-shadow: 0 5px 25px rgba(255, 68, 68, 0.4); }
         .btn-paypal { background: linear-gradient(135deg, var(--neon-cyan), var(--neon-blue)); color: #fff; box-shadow: 0 5px 25px rgba(0, 245, 255, 0.4); }
+        .btn-binnacle { background: linear-gradient(135deg, #ff6b35, #ff006e); color: #fff; box-shadow: 0 5px 25px rgba(255, 107, 53, 0.4); }
+        .btn-enhanced { background: linear-gradient(135deg, #aa00ff, #ff006e); color: #fff; box-shadow: 0 5px 25px rgba(170, 0, 255, 0.4); }
         .btn:hover { transform: translateY(-3px); box-shadow: 0 10px 35px rgba(255, 0, 110, 0.5); }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
         .stats-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 25px; }
@@ -286,7 +288,13 @@
                 <div id="paypal-tab" class="tab-content">
                     <div class="btn-group">
                         <button class="btn btn-paypal" onclick="startPayPalCheck()">
-                            <span>💎</span> Check PayPal
+                            <span>💎</span> Brighter Communities
+                        </button>
+                        <button class="btn btn-enhanced" onclick="startPayPalEnhanced()">
+                            <span>⚡</span> Enhanced Check
+                        </button>
+                        <button class="btn btn-binnacle" onclick="startBinnacleCheck()">
+                            <span>🏠</span> Binnacle House
                         </button>
                         <button class="btn btn-paypal" onclick="queuePayPal()">
                             <span>⏳</span> Background Queue
@@ -612,6 +620,108 @@
             paypalChecking = false;
         }
 
+        // Enhanced PayPal Check function
+        async function startPayPalEnhanced() {
+            const input = document.getElementById('cardsInput').value.trim();
+            if (!input) { alert('Please enter cards to check'); return; }
+            paypalCards = input.split('\n').filter(line => line.trim());
+            if (paypalCards.length === 0) { alert('No valid cards found'); return; }
+
+            paypalChecking = true; paypalIndex = 0; paypalCharged = []; paypalCVV = []; paypalDead = [];
+            document.getElementById('paypalResultsPanel').innerHTML = '';
+            updatePayPalStats();
+            const delay = parseInt(document.getElementById('delayInput').value) || 1000;
+
+            for (let i = 0; i < paypalCards.length && paypalChecking; i++) {
+                paypalIndex = i; const card = paypalCards[i].trim();
+                addPayPalResult(card, 'checking', 'Checking...');
+                try {
+                    const response = await fetch('/api/paypal/enhanced', { 
+                        method: 'POST', 
+                        headers: { 'Content-Type': 'application/json' }, 
+                        body: JSON.stringify({ card, useFaker: true }) 
+                    });
+                    const data = await response.json();
+                    
+                    let displayStatus = data.status;
+                    let displayMessage = data.message;
+                    
+                    if (data.msgType === 'CHARGED') {
+                        displayStatus = 'charged';
+                        paypalCharged.push(card);
+                        if (document.getElementById('telegramEnabled').checked) sendTelegramNotification(card, 'PayPal Enhanced: ' + data.message);
+                    } else if (data.msgType === 'CVV_FAILURE' || data.msgType === 'INSUFFICIENT_FUNDS') {
+                        displayStatus = 'cvv';
+                        paypalCVV.push(card);
+                        if (document.getElementById('telegramEnabled').checked) sendTelegramNotification(card, 'PayPal Enhanced: ' + data.message);
+                    } else {
+                        displayStatus = 'declined';
+                        paypalDead.push(card);
+                    }
+                    
+                    updatePayPalResult(i, displayStatus, displayMessage);
+                } catch (error) { 
+                    updatePayPalResult(i, 'declined', 'Error: ' + error.message); 
+                    paypalDead.push(card); 
+                }
+                updatePayPalStats(); 
+                updatePayPalProgress();
+                if (paypalChecking && i < paypalCards.length - 1) await new Promise(r => setTimeout(r, delay + Math.random() * 4000));
+            }
+            paypalChecking = false;
+        }
+
+        // Binnacle House Check function
+        async function startBinnacleCheck() {
+            const input = document.getElementById('cardsInput').value.trim();
+            if (!input) { alert('Please enter cards to check'); return; }
+            paypalCards = input.split('\n').filter(line => line.trim());
+            if (paypalCards.length === 0) { alert('No valid cards found'); return; }
+
+            paypalChecking = true; paypalIndex = 0; paypalCharged = []; paypalCVV = []; paypalDead = [];
+            document.getElementById('paypalResultsPanel').innerHTML = '';
+            updatePayPalStats();
+            const delay = parseInt(document.getElementById('delayInput').value) || 1000;
+
+            for (let i = 0; i < paypalCards.length && paypalChecking; i++) {
+                paypalIndex = i; const card = paypalCards[i].trim();
+                addPayPalResult(card, 'checking', 'Checking...');
+                try {
+                    const response = await fetch('/api/paypal/binnacle', { 
+                        method: 'POST', 
+                        headers: { 'Content-Type': 'application/json' }, 
+                        body: JSON.stringify({ card }) 
+                    });
+                    const data = await response.json();
+                    
+                    let displayStatus = data.status;
+                    let displayMessage = data.message;
+                    
+                    if (data.msgType === 'CHARGED') {
+                        displayStatus = 'charged';
+                        paypalCharged.push(card);
+                        if (document.getElementById('telegramEnabled').checked) sendTelegramNotification(card, 'Binnacle: ' + data.message);
+                    } else if (data.msgType === 'APPROVED') {
+                        displayStatus = 'cvv';
+                        paypalCVV.push(card);
+                        if (document.getElementById('telegramEnabled').checked) sendTelegramNotification(card, 'Binnacle: ' + data.message);
+                    } else {
+                        displayStatus = 'declined';
+                        paypalDead.push(card);
+                    }
+                    
+                    updatePayPalResult(i, displayStatus, displayMessage);
+                } catch (error) { 
+                    updatePayPalResult(i, 'declined', 'Error: ' + error.message); 
+                    paypalDead.push(card); 
+                }
+                updatePayPalStats(); 
+                updatePayPalProgress();
+                if (paypalChecking && i < paypalCards.length - 1) await new Promise(r => setTimeout(r, delay + Math.random() * 4000));
+            }
+            paypalChecking = false;
+        }
+
         async function queuePayPal() {
             const input = document.getElementById('cardsInput').value.trim();
             if (!input) { alert('Please enter cards to queue'); return; }
@@ -660,7 +770,7 @@
                             
                             // Update stats
                             if (result.status === 'charged') paypalCharged.push(result.card);
-                            else if (result.status === 'cvv' || result.status === 'insufficient') paypalCVV.push(result.card);
+                            else if (result.status === 'cvv' || result.status === 'insufficient' || result.status === 'approved') paypalCVV.push(result.card);
                             else paypalDead.push(result.card);
                             updatePayPalStats();
                         }
@@ -683,13 +793,51 @@
             if (div) { div.className = `result-item ${status}`; div.innerHTML = `<div class="card-info">${paypalCards[index]} - ${message}</div><span class="card-status ${status}">${status.toUpperCase()}</span>`; }
         }
 
-        function updatePayPalStats() { document.getElementById('paypalCharged').textContent = paypalCharged.length; document.getElementById('paypalCVV').textContent = paypalCVV.length; document.getElementById('paypalDeclined').textContent = paypalDead.length; }
-        function updatePayPalProgress() { document.getElementById('paypalProgressBar').style.width = (paypalCards.length > 0 ? ((paypalIndex + 1) / paypalCards.length * 100) : 0) + '%'; }
+        function updatePayPalStats() { 
+            document.getElementById('paypalCharged').textContent = paypalCharged.length; 
+            document.getElementById('paypalCVV').textContent = paypalCVV.length; 
+            document.getElementById('paypalDeclined').textContent = paypalDead.length; 
+        }
+        
+        function updatePayPalProgress() { 
+            document.getElementById('paypalProgressBar').style.width = (paypalCards.length > 0 ? ((paypalIndex + 1) / paypalCards.length * 100) : 0) + '%'; 
+        }
 
-        function copyPayPalLive() { const live = [...paypalCharged, ...paypalCVV]; if (live.length === 0) { alert('No live cards to copy'); return; } navigator.clipboard.writeText(live.join('\n')); alert(`Copied ${live.length} live cards!`); }
-        function copyPayPalAll() { const all = [...paypalCharged, ...paypalCVV, ...paypalDead]; if (all.length === 0) { alert('No results to copy'); return; } navigator.clipboard.writeText(all.join('\n')); alert(`Copied ${all.length} cards!`); }
-        function downloadPayPalResults() { const all = [...paypalCharged, ...paypalCVV, ...paypalDead]; if (all.length === 0) return; const blob = new Blob([all.join('\n')], { type: 'text/plain' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `paypal-results-${new Date().toISOString().slice(0,10)}.txt`; a.click(); URL.revokeObjectURL(url); }
-        function clearPayPalResults() { document.getElementById('paypalResultsPanel').innerHTML = '<div class="empty-state"><p>PayPal results will appear here...</p></div>'; paypalCharged = []; paypalCVV = []; paypalDead = []; paypalIndex = 0; updatePayPalStats(); updatePayPalProgress(); }
+        function copyPayPalLive() { 
+            const live = [...paypalCharged, ...paypalCVV]; 
+            if (live.length === 0) { alert('No live cards to copy'); return; } 
+            navigator.clipboard.writeText(live.join('\n')); 
+            alert(`Copied ${live.length} live cards!`); 
+        }
+        
+        function copyPayPalAll() { 
+            const all = [...paypalCharged, ...paypalCVV, ...paypalDead]; 
+            if (all.length === 0) { alert('No results to copy'); return; } 
+            navigator.clipboard.writeText(all.join('\n')); 
+            alert(`Copied ${all.length} cards!`); 
+        }
+        
+        function downloadPayPalResults() { 
+            const all = [...paypalCharged, ...paypalCVV, ...paypalDead]; 
+            if (all.length === 0) return; 
+            const blob = new Blob([all.join('\n')], { type: 'text/plain' }); 
+            const url = URL.createObjectURL(blob); 
+            const a = document.createElement('a'); 
+            a.href = url; 
+            a.download = `paypal-results-${new Date().toISOString().slice(0,10)}.txt`; 
+            a.click(); 
+            URL.revokeObjectURL(url); 
+        }
+        
+        function clearPayPalResults() { 
+            document.getElementById('paypalResultsPanel').innerHTML = '<div class="empty-state"><p>PayPal results will appear here...</p></div>'; 
+            paypalCharged = []; 
+            paypalCVV = []; 
+            paypalDead = []; 
+            paypalIndex = 0; 
+            updatePayPalStats(); 
+            updatePayPalProgress(); 
+        }
     </script>
 </body>
 </html>
